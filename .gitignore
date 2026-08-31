@@ -1,0 +1,13 @@
+﻿# Build output
+bin/
+obj/
+*.dll
+*.pdb
+
+# API key config
+appsettings.json
+
+# User-specific files
+.vs/
+*.user
+*.suo
