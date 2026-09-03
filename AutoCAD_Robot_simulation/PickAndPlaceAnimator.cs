@@ -28,6 +28,7 @@ namespace AutoCAD_Robot_simulation
         private const int PreDescentKeyIndex = 3;
         private const int ReleaseKeyIndex = 4;
         private static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(15);
+        private static readonly Point3d YawPivot = Point3d.Origin;
 
         private readonly Document _doc = doc;
         private readonly Editor _ed = doc.Editor;
@@ -35,7 +36,7 @@ namespace AutoCAD_Robot_simulation
         private readonly KinematicsSolver _ikSolver =
             new(SharedData.Config.LowerArmSize.Z, SharedData.Config.UpperArmSize.Z + 10.0);
         private readonly Point3d _lowerArmPivot = new(0, 0, SharedData.Config.BaseHeight);
-        private Point3d _upperArmPivot =
+        private readonly Point3d _restUpperArmPivot =
             new(0, 0, SharedData.Config.BaseHeight + SharedData.Config.LowerArmSize.Z);
 
         private readonly ObjectId _lowerArmId = lowerArmId;
@@ -51,10 +52,11 @@ namespace AutoCAD_Robot_simulation
         private Point3d _currentPos = startPos;
         private int _keyIndex = 0;
         private int _step = 1;
-        private double _prevTheta1 = Math.PI / 2;
-        private double _prevTheta2 = 0;
         private bool _isGrabbed = false;
         private double _obstacleClearance = 0;
+
+        private Matrix3d _lowerTotal = Matrix3d.Identity;
+        private Matrix3d _upperTotal = Matrix3d.Identity;
 
         private DispatcherTimer _timer;
 
@@ -136,36 +138,47 @@ namespace AutoCAD_Robot_simulation
 
         private void MoveArmTowards(Transaction tr, Point3d targetPt)
         {
-            double[] angles = _ikSolver.CalculateAngles(targetPt, _lowerArmPivot);
-            double deltaTheta1 = angles[0] - _prevTheta1;
-            double deltaTheta2 = angles[1] - _prevTheta2;
+            ArmAngles angles = _ikSolver.CalculateAngles(targetPt, _lowerArmPivot);
 
-            RobotAnimator.RotatePart(tr, _lowerArmId, deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
-            RobotAnimator.RotatePart(tr, _joint2Id, deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
-            RobotAnimator.RotatePart(tr, _upperArmId, deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
-            RobotAnimator.RotatePart(tr, _gripperBaseId, deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
-            RobotAnimator.RotatePart(tr, _finger1Id, deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
-            RobotAnimator.RotatePart(tr, _finger2Id, deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
+            Vector3d bendAxis = Vector3d.XAxis.RotateBy(angles.BaseYaw, Vector3d.ZAxis);
+
+            Matrix3d yawMatrix = Matrix3d.Rotation(angles.BaseYaw, Vector3d.ZAxis, YawPivot);
+            Matrix3d shoulderMatrix = Matrix3d.Rotation(angles.Shoulder, bendAxis, _lowerArmPivot);
+            Matrix3d newLowerTotal = shoulderMatrix * yawMatrix;
+
+            Point3d currentUpperArmPivot = _restUpperArmPivot.TransformBy(newLowerTotal);
+            Matrix3d elbowMatrix = Matrix3d.Rotation(angles.Elbow, bendAxis, currentUpperArmPivot);
+            Matrix3d newUpperTotal = elbowMatrix * newLowerTotal;
+
+            Matrix3d lowerDelta = newLowerTotal * _lowerTotal.Inverse();
+            Matrix3d upperDelta = newUpperTotal * _upperTotal.Inverse();
+
+            ApplyTransform(tr, _lowerArmId, lowerDelta);
+            ApplyTransform(tr, _joint2Id, lowerDelta);
+            ApplyTransform(tr, _upperArmId, upperDelta);
+            ApplyTransform(tr, _gripperBaseId, upperDelta);
+            ApplyTransform(tr, _finger1Id, upperDelta);
+            ApplyTransform(tr, _finger2Id, upperDelta);
             if (_isGrabbed)
-                RobotAnimator.RotatePart(tr, _payloadId, deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
+                ApplyTransform(tr, _payloadId, upperDelta);
 
-            _upperArmPivot = _upperArmPivot.RotateBy(deltaTheta1, Vector3d.XAxis, _lowerArmPivot);
+            _lowerTotal = newLowerTotal;
+            _upperTotal = newUpperTotal;
+        }
 
-            RobotAnimator.RotatePart(tr, _upperArmId, deltaTheta2, Vector3d.XAxis, _upperArmPivot);
-            RobotAnimator.RotatePart(tr, _gripperBaseId, deltaTheta2, Vector3d.XAxis, _upperArmPivot);
-            RobotAnimator.RotatePart(tr, _finger1Id, deltaTheta2, Vector3d.XAxis, _upperArmPivot);
-            RobotAnimator.RotatePart(tr, _finger2Id, deltaTheta2, Vector3d.XAxis, _upperArmPivot);
-            if (_isGrabbed)
-                RobotAnimator.RotatePart(tr, _payloadId, deltaTheta2, Vector3d.XAxis, _upperArmPivot);
+        private static void ApplyTransform(Transaction tr, ObjectId id, Matrix3d transform)
+        {
+            if (id == ObjectId.Null)
+                return;
 
-            _prevTheta1 = angles[0];
-            _prevTheta2 = angles[1];
+            if (tr.GetObject(id, OpenMode.ForWrite) is Entity ent)
+                ent.TransformBy(transform);
         }
 
         private void RefreshView()
         {
             _doc.TransactionManager.QueueForGraphicsFlush();
-            _ed.UpdateScreen();
+            _ed.Regen();
         }
 
         private void AdvanceStep(Point3d targetKey)

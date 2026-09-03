@@ -71,8 +71,8 @@ namespace AutoCAD_Robot_simulation
             PromptPointResult pprPlace = ed.GetPoint("\n>>> Select PLACE point: ");
             if (pprPlace.Status != PromptStatus.OK) return;
 
-            Point3d pPick = new(0, pprPick.Value.Y, pprPick.Value.Z);
-            Point3d pPlace = new(0, pprPlace.Value.Y, pprPlace.Value.Z);
+            Point3d pPick = new(pprPick.Value.X, pprPick.Value.Y, pprPick.Value.Z);
+            Point3d pPlace = new(pprPlace.Value.X, pprPlace.Value.Y, pprPlace.Value.Z);
 
             RunSimulation(pPick, pPlace);
         }
@@ -81,8 +81,6 @@ namespace AutoCAD_Robot_simulation
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
-            pPick = new Point3d(0, pPick.Y, pPick.Z);
-            pPlace = new Point3d(0, pPlace.Y, pPlace.Z);
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
@@ -121,7 +119,7 @@ namespace AutoCAD_Robot_simulation
                     obstacleId = AppendAndConfigureEntity(tr, ms, obstacle);
 
                     SetRealisticVisualStyle(db, tr);
-                    tr.Commit(); // Commit ngay sau khi tạo hình, KHÔNG giữ transaction cho animation
+                    tr.Commit();
                 }
                 catch (System.Exception ex)
                 {

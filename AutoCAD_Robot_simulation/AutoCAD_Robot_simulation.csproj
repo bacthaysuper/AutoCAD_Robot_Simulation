@@ -7,6 +7,7 @@
 		<OutputType>Library</OutputType>
 		<UseWindowsForms>true</UseWindowsForms>
 		<UseWPF>true</UseWPF>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 		<ImplicitUsings>disable</ImplicitUsings>
 		<Nullable>disable</Nullable>
@@ -41,6 +42,7 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+		<PackageReference Include="System.Speech" Version="10.0.11" />
 	</ItemGroup>
 	<Target Name="CopyWebView2Native" AfterTargets="Build">
 		<ItemGroup>
