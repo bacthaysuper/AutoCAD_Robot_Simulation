@@ -20,20 +20,19 @@ namespace AutoCAD_Robot_simulation
             double dx = target.X - origin.X;
             double dy = target.Y - origin.Y;
             double dz = target.Z - origin.Z;
+            double baseYaw = Math.Atan2(dy, dx);
 
-            double baseYaw = Math.Atan2(dy, dx) - (Math.PI / 2);
             double reach = Math.Sqrt((dx * dx) + (dy * dy));
-
             double distanceSquare = (reach * reach) + (dz * dz);
+
             double cosElbow = (distanceSquare - (_l1 * _l1) - (_l2 * _l2)) / (2 * _l1 * _l2);
+            cosElbow = Math.Max(-1.0, Math.Min(1.0, cosElbow));
+            double elbow = Math.Acos(cosElbow);
 
-            if (cosElbow > 1.0 || cosElbow < -1.0)
-                throw new InvalidOperationException("Target point is out of reach!");
-
-            double elbow = -Math.Acos(cosElbow);
             double k1 = _l1 + (_l2 * Math.Cos(elbow));
             double k2 = _l2 * Math.Sin(elbow);
-            double shoulder = Math.Atan2(dz, reach) - Math.Atan2(k2, k1);
+            double shoulderMath = Math.Atan2(dz, reach) + Math.Atan2(k2, k1);
+            double shoulder = (Math.PI / 2) - shoulderMath;
 
             return new ArmAngles(baseYaw, shoulder, elbow);
         }

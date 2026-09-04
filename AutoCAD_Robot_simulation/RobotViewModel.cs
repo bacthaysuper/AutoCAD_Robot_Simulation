@@ -40,6 +40,8 @@ namespace AutoCAD_Robot_simulation
         private const string IdleColor = "#1ABC9C";
         private const string ListeningColor = "#E74C3C";
         private const float ConfidenceThreshold = 0.15f;
+        private const double MaxPhysicalReach = 285.0;
+
         private static readonly string[] ActionKeywords = ["move", "pick", "place", "take", "put", "the", "payload", "box", "to", "at", "and", "minus"];
         private static readonly string[] AxisKeywords = ["x", "y", "z"];
         private static readonly string[] NumberOnes = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
@@ -91,7 +93,7 @@ namespace AutoCAD_Robot_simulation
 
                 var keywords = new Choices();
                 keywords.Add(ActionKeywords);
-                keywords.Add(AxisKeywords); 
+                keywords.Add(AxisKeywords);
 
                 var numberWords = new Choices();
                 for (int i = 0; i <= 350; i += 10)
@@ -105,7 +107,6 @@ namespace AutoCAD_Robot_simulation
 
                 _recognizer.LoadGrammar(commandGrammar);
                 _recognizer.LoadGrammar(dictationGrammar);
-
                 _recognizer.SetInputToDefaultAudioDevice();
                 _recognizer.SpeechRecognized += Recognizer_SpeechRecognized;
                 _recognizer.SpeechRecognitionRejected += Recognizer_SpeechRecognitionRejected;
@@ -132,6 +133,7 @@ namespace AutoCAD_Robot_simulation
             int hundreds = number / 100;
             int remainder = number % 100;
             string hundredPart = $"{NumberOnes[hundreds]} hundred";
+
             return remainder == 0 ? hundredPart : $"{hundredPart} {NumberToWords(remainder)}";
         }
 
@@ -260,26 +262,24 @@ namespace AutoCAD_Robot_simulation
                     try
                     {
                         Application.Idle -= Handler;
-
                         var doc = Application.DocumentManager.MdiActiveDocument;
                         doc?.SendStringToExecute(cmd, true, false, false);
                     }
                     catch { }
                 }
-
                 Application.Idle += Handler;
             });
         }
-        private const double MaxPhysicalReach = 280;
+
         private static Point3d ClampCoordinate(double x, double y, double z)
         {
-            double distance = Math.Sqrt((x * x) + (y * y) + (z * z));
+            double distance = Math.Sqrt((x * x) + (y * y));
 
             if (distance <= MaxPhysicalReach || distance == 0)
                 return new Point3d(x, y, z);
 
             double scale = MaxPhysicalReach / distance;
-            return new Point3d(x * scale, y * scale, z * scale);
+            return new Point3d(x * scale, y * scale, z);
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

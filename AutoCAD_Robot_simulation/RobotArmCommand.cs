@@ -18,18 +18,17 @@ namespace AutoCAD_Robot_simulation
 
         private static void EnsureRobotLayer(Database db, Transaction tr)
         {
-            var lt = tr.GetObject(db.LayerTableId, OpenMode.ForRead) as LayerTable;
-            if (lt != null && !lt.Has(RobotLayerName))
+            if (tr.GetObject(db.LayerTableId, OpenMode.ForRead) is not LayerTable lt || lt.Has(RobotLayerName))
+                return;
+
+            lt.UpgradeOpen();
+            var ltr = new LayerTableRecord
             {
-                lt.UpgradeOpen();
-                var ltr = new LayerTableRecord
-                {
-                    Name = RobotLayerName,
-                    Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 3)
-                };
-                lt.Add(ltr);
-                tr.AddNewlyCreatedDBObject(ltr, true);
-            }
+                Name = RobotLayerName,
+                Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 3)
+            };
+            lt.Add(ltr);
+            tr.AddNewlyCreatedDBObject(ltr, true);
         }
 
         private static BlockTableRecord GetModelSpace(Database db, Transaction tr)
@@ -49,12 +48,11 @@ namespace AutoCAD_Robot_simulation
         private static void SetRealisticVisualStyle(Database db, Transaction tr)
         {
             var visualStyles = (DBDictionary)tr.GetObject(db.VisualStyleDictionaryId, OpenMode.ForRead);
-            if (visualStyles.Contains("Realistic"))
-            {
-                var vt = (ViewportTable)tr.GetObject(db.ViewportTableId, OpenMode.ForRead);
-                var vtr = (ViewportTableRecord)tr.GetObject(vt["*Active"], OpenMode.ForWrite);
-                vtr.VisualStyleId = visualStyles.GetAt("Realistic");
-            }
+            if (!visualStyles.Contains("Realistic")) return;
+
+            var vt = (ViewportTable)tr.GetObject(db.ViewportTableId, OpenMode.ForRead);
+            var vtr = (ViewportTableRecord)tr.GetObject(vt["*Active"], OpenMode.ForWrite);
+            vtr.VisualStyleId = visualStyles.GetAt("Realistic");
         }
 
         [CommandMethod("PICK_AND_PLACE")]
@@ -81,10 +79,13 @@ namespace AutoCAD_Robot_simulation
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
+
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
-            ObjectId lowerArmId, joint2Id, upperArmId, gripperBaseId, finger1Id, finger2Id, payloadId, obstacleId;
+            ObjectId lowerArmId = ObjectId.Null, joint2Id = ObjectId.Null, upperArmId = ObjectId.Null;
+            ObjectId gripperBaseId = ObjectId.Null, finger1Id = ObjectId.Null, finger2Id = ObjectId.Null;
+            ObjectId payloadId, obstacleId;
 
             using (var docLock = doc.LockDocument())
             using (var tr = db.TransactionManager.StartTransaction())
@@ -99,19 +100,20 @@ namespace AutoCAD_Robot_simulation
                     Solid3d targetBin = RobotArmBuilder.CreateBin(pPlace);
                     Solid3d obstacle = RobotArmBuilder.CreateObstacle(pPick, pPlace);
 
-                    lowerArmId = joint2Id = upperArmId = gripperBaseId = finger1Id = finger2Id = ObjectId.Null;
-
                     EnsureRobotLayer(db, tr);
 
                     for (int i = 0; i < robotParts.Count; i++)
                     {
                         ObjectId id = AppendAndConfigureEntity(tr, ms, robotParts[i]);
-                        if (i == 2) lowerArmId = id;
-                        if (i == 3) joint2Id = id;
-                        if (i == 4) upperArmId = id;
-                        if (i == 5) gripperBaseId = id;
-                        if (i == 6) finger1Id = id;
-                        if (i == 7) finger2Id = id;
+                        switch (i)
+                        {
+                            case 2: lowerArmId = id; break;
+                            case 3: joint2Id = id; break;
+                            case 4: upperArmId = id; break;
+                            case 5: gripperBaseId = id; break;
+                            case 6: finger1Id = id; break;
+                            case 7: finger2Id = id; break;
+                        }
                     }
 
                     payloadId = AppendAndConfigureEntity(tr, ms, payload);
@@ -130,13 +132,20 @@ namespace AutoCAD_Robot_simulation
 
             ed.WriteMessage("\n>>> Starting Pick and Place with Obstacle Avoidance...");
 
-            double safeHoverZ = Math.Max(pPick.Z, pPlace.Z) + 15.0;
-            Point3d pPickHover = new(0, pPick.Y, safeHoverZ);
-            Point3d pPlaceHover = new(0, pPlace.Y, safeHoverZ);
-            Point3d pGrabTarget = new(0, pPick.Y, pPick.Z + PayloadHalfHeight);
-            Point3d pDropTarget = new(0, pPlace.Y, pPlace.Z + BinFloorHeight + PayloadHalfHeight);
+            double safeHoverZ = Math.Max(pPick.Z, pPlace.Z) + 20.0;
+            Point3d pGrabTarget = new(pPick.X, pPick.Y, pPick.Z + PayloadHalfHeight);
+            Point3d pDropTarget = new(pPlace.X, pPlace.Y, pPlace.Z + BinFloorHeight + 0.5);
 
-            Point3d[] keyPoints = [pPickHover, pGrabTarget, pPickHover, pPlaceHover, pDropTarget, pPlaceHover];
+            Point3d[] keyPoints =
+            [
+                new(pPick.X, pPick.Y, safeHoverZ),
+                pGrabTarget,
+                new(pPick.X, pPick.Y, safeHoverZ),
+                new(pPlace.X, pPlace.Y, safeHoverZ),
+                pDropTarget,
+                new(pPlace.X, pPlace.Y, safeHoverZ)
+            ];
+
             Point3d startPos = new(0, 0, SharedData.Config.BaseHeight + SharedData.Config.LowerArmSize.Z + SharedData.Config.UpperArmSize.Z + 10.0);
 
             var animator = new PickAndPlaceAnimator(doc, keyPoints, startPos,
@@ -147,6 +156,7 @@ namespace AutoCAD_Robot_simulation
 
             animator.Start();
         }
+
         [CommandMethod("EXECUTE_AI_TASK")]
         public static void ExecuteAiTask()
         {

@@ -11,9 +11,10 @@ namespace AutoCAD_Robot_simulation
 {
     public class AI
     {
-        private const string BaseUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
+        private const string BaseUrl =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
 
-        private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
+        private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(60) };
         private static string _cachedApiKey;
 
         private static string GetApiKey()

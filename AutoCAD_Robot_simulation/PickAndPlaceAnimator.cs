@@ -9,17 +9,10 @@ using Autodesk.AutoCAD.Geometry;
 namespace AutoCAD_Robot_simulation
 {
     public class PickAndPlaceAnimator(
-        Document doc,
-        Point3d[] keyPoints,
-        Point3d startPos,
-        ObjectId lowerArmId,
-        ObjectId joint2Id,
-        ObjectId upperArmId,
-        ObjectId gripperBaseId,
-        ObjectId finger1Id,
-        ObjectId finger2Id,
-        ObjectId payloadId,
-        ObjectId obstacleId)
+        Document doc, Point3d[] keyPoints, Point3d startPos,
+        ObjectId lowerArmId, ObjectId joint2Id, ObjectId upperArmId,
+        ObjectId gripperBaseId, ObjectId finger1Id, ObjectId finger2Id,
+        ObjectId payloadId, ObjectId obstacleId)
     {
         private const int StepsPerSegment = 50;
         private const double GripperOffset = 3.0;
@@ -33,11 +26,9 @@ namespace AutoCAD_Robot_simulation
         private readonly Document _doc = doc;
         private readonly Editor _ed = doc.Editor;
 
-        private readonly KinematicsSolver _ikSolver =
-            new(SharedData.Config.LowerArmSize.Z, SharedData.Config.UpperArmSize.Z + 10.0);
+        private readonly KinematicsSolver _ikSolver = new(SharedData.Config.LowerArmSize.Z, SharedData.Config.UpperArmSize.Z + 10.0);
         private readonly Point3d _lowerArmPivot = new(0, 0, SharedData.Config.BaseHeight);
-        private readonly Point3d _restUpperArmPivot =
-            new(0, 0, SharedData.Config.BaseHeight + SharedData.Config.LowerArmSize.Z);
+        private readonly Point3d _restUpperArmPivot = new(0, 0, SharedData.Config.BaseHeight + SharedData.Config.LowerArmSize.Z);
 
         private readonly ObjectId _lowerArmId = lowerArmId;
         private readonly ObjectId _joint2Id = joint2Id;
@@ -54,10 +45,9 @@ namespace AutoCAD_Robot_simulation
         private int _step = 1;
         private bool _isGrabbed = false;
         private double _obstacleClearance = 0;
-
+        private double _currentClearance = 0;
         private Matrix3d _lowerTotal = Matrix3d.Identity;
         private Matrix3d _upperTotal = Matrix3d.Identity;
-
         private DispatcherTimer _timer;
 
         public event Action Completed;
@@ -88,15 +78,13 @@ namespace AutoCAD_Robot_simulation
             {
                 Point3d targetKey = _keyPoints[_keyIndex];
 
-                if (_isGrabbed)
-                    UpdateObstacleClearance(tr);
+                if (_isGrabbed) UpdateObstacleClearance(tr);
 
                 Point3d targetPt = InterpolateStep(targetKey);
                 MoveArmTowards(tr, targetPt);
 
                 tr.Commit();
                 RefreshView();
-
                 AdvanceStep(targetKey);
             }
             catch (Exception ex)
@@ -111,25 +99,22 @@ namespace AutoCAD_Robot_simulation
             double t = _step / (double)StepsPerSegment;
             double smoothT = (t * t) * (3.0 - 2.0 * t);
             Point3d basePoint = _currentPos + ((targetKey - _currentPos) * smoothT);
-            return new Point3d(basePoint.X, basePoint.Y, basePoint.Z + _obstacleClearance);
+            _currentClearance += (_obstacleClearance - _currentClearance) * 0.2;
+            return new Point3d(basePoint.X, basePoint.Y, basePoint.Z + _currentClearance);
         }
 
         private void UpdateObstacleClearance(Transaction tr)
         {
-            if (_payloadId == ObjectId.Null || _obstacleId == ObjectId.Null)
-                return;
+            if (_payloadId == ObjectId.Null || _obstacleId == ObjectId.Null) return;
 
             if (tr.GetObject(_payloadId, OpenMode.ForRead) is not Solid3d payload ||
-                tr.GetObject(_obstacleId, OpenMode.ForWrite) is not Solid3d obstacle)
-                return;
+                tr.GetObject(_obstacleId, OpenMode.ForWrite) is not Solid3d obstacle) return;
 
-            if (!payload.CheckInterference(obstacle))
-                return;
+            if (!payload.CheckInterference(obstacle)) return;
 
             if (_obstacleClearance <= 0)
             {
                 _ed.WriteMessage("\n[WARNING] Near Collision Hazard Detected! Rerouting trajectory...");
-                _ed.WriteMessage("\n[PATH PLANNER] Obstacle bypassed successfully. Resuming path to target.");
             }
 
             obstacle.Color = Color.FromColorIndex(ColorMethod.ByAci, 2);
@@ -139,8 +124,7 @@ namespace AutoCAD_Robot_simulation
         private void MoveArmTowards(Transaction tr, Point3d targetPt)
         {
             ArmAngles angles = _ikSolver.CalculateAngles(targetPt, _lowerArmPivot);
-
-            Vector3d bendAxis = Vector3d.XAxis.RotateBy(angles.BaseYaw, Vector3d.ZAxis);
+            Vector3d bendAxis = Vector3d.YAxis.RotateBy(angles.BaseYaw, Vector3d.ZAxis);
 
             Matrix3d yawMatrix = Matrix3d.Rotation(angles.BaseYaw, Vector3d.ZAxis, YawPivot);
             Matrix3d shoulderMatrix = Matrix3d.Rotation(angles.Shoulder, bendAxis, _lowerArmPivot);
@@ -159,8 +143,8 @@ namespace AutoCAD_Robot_simulation
             ApplyTransform(tr, _gripperBaseId, upperDelta);
             ApplyTransform(tr, _finger1Id, upperDelta);
             ApplyTransform(tr, _finger2Id, upperDelta);
-            if (_isGrabbed)
-                ApplyTransform(tr, _payloadId, upperDelta);
+
+            if (_isGrabbed) ApplyTransform(tr, _payloadId, upperDelta);
 
             _lowerTotal = newLowerTotal;
             _upperTotal = newUpperTotal;
@@ -168,11 +152,8 @@ namespace AutoCAD_Robot_simulation
 
         private static void ApplyTransform(Transaction tr, ObjectId id, Matrix3d transform)
         {
-            if (id == ObjectId.Null)
-                return;
-
-            if (tr.GetObject(id, OpenMode.ForWrite) is Entity ent)
-                ent.TransformBy(transform);
+            if (id == ObjectId.Null) return;
+            if (tr.GetObject(id, OpenMode.ForWrite) is Entity ent) ent.TransformBy(transform);
         }
 
         private void RefreshView()
@@ -184,8 +165,7 @@ namespace AutoCAD_Robot_simulation
         private void AdvanceStep(Point3d targetKey)
         {
             _step++;
-            if (_step <= StepsPerSegment)
-                return;
+            if (_step <= StepsPerSegment) return;
 
             _currentPos = targetKey;
             _step = 1;
@@ -211,8 +191,15 @@ namespace AutoCAD_Robot_simulation
         private void GripperMove(double direction)
         {
             using var tr = _doc.Database.TransactionManager.StartTransaction();
-            RobotAnimator.TranslatePart(tr, _finger1Id, new Vector3d(direction, 0, 0));
-            RobotAnimator.TranslatePart(tr, _finger2Id, new Vector3d(-direction, 0, 0));
+            Vector3d localMove1 = new Vector3d(direction, 0, 0).TransformBy(_upperTotal);
+            Vector3d localMove2 = new Vector3d(-direction, 0, 0).TransformBy(_upperTotal);
+
+            if (_finger1Id != ObjectId.Null && tr.GetObject(_finger1Id, OpenMode.ForWrite) is Entity f1)
+                f1.TransformBy(Matrix3d.Displacement(localMove1));
+
+            if (_finger2Id != ObjectId.Null && tr.GetObject(_finger2Id, OpenMode.ForWrite) is Entity f2)
+                f2.TransformBy(Matrix3d.Displacement(localMove2));
+
             tr.Commit();
             _ed.UpdateScreen();
         }
